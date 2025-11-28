@@ -143,10 +143,10 @@ wrangler deploy
 
 ### 1. 🌐 Developer Dashboard (Web UI)
 
-Directly access your Worker address to experience full functionality:
+Directly access your Worker address to experience full functionality APi Key:
 
 ```
-https://your project name.your subdomain.workers.dev
+https://aiimagegen.abdullah.nyc.mn/v1/chat/completions
 
 ```
 
