@@ -185,47 +185,6 @@ Model Selection: flux-schnell
 
 ---
 
-## 🔧 In-depth Technical Analysis
-
-### Core Architecture Flow
-
-```mermaid
-
-sequenceDiagram
-
-partner U as User
-
-partner W as Worker
-
-partner S as Upstream Service
-
-U->>W: 📨 OpenAI Format Request
-
-Note over W: 🎭 Identity Impersonation Stage
-
-W->>W: generateFingerprint()
-
-W->>W: generateRandomIP()
-
-W->>W: getFakeHeaders()
-
-Note over W: 🔄 Upstream Interaction Stage
-
-W->>S: 💳 Points Deduction Request
-
-S-->>W: Points Confirmation
-
-W->>S: 🎨 Send Drawing Instruction
-
-S-->>W: Return Image Data
-
-Note over W: ✨ Format Conversion
-
-W->>W: Convert to OpenAI Format
-
-W-->>U: 📤 Return Standardized Response
-
-```
 
 ### 🧩 Core Module Details
 
