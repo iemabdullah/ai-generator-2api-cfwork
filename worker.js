@@ -1,26 +1,26 @@
 // =================================================================================
-//  项目: ai-generator-2api (Cloudflare Worker 单文件版)
-//  版本: 2.4.0 (代号: Flux Pure Edition)
-//  作者: 首席AI执行官
-//  日期: 2025-11-26
+//  Project: ai-generator-2api (Cloudflare Worker Single File Version)
+//  Version: 2.4.0 (Codename: Flux Pure Edition)
+//  Author: Chief AI Officer
+//  Date: 2025-11-26
 //
-//  [v2.4.0 变更日志]
-//  1. [精简] 移除所有图生图 (Img2Img) 逻辑，仅保留文生图。
-//  2. [锁定] 仅保留 flux-schnell 模型，移除多模型路由。
-//  3. [透视] Web UI 日志增强：显示伪造 IP、完整请求头、完整上游响应。
+//  [v2.4.0 Changelog]
+//  1. [Streamline] Remove all Image-to-Image (Img2Img) logic, keep only Text-to-Image.
+//  2. [Lock] Only keep flux-schnell model, remove multi-model routing.
+//  3. [Transparency] Web UI log enhancement: display fake IP, complete request headers, complete upstream response.
 // =================================================================================
 
-// --- [第一部分: 核心配置] ---
+// --- [Part 1: Core Configuration] ---
 const CONFIG = {
   PROJECT_NAME: "ai-generator-flux-pure",
   PROJECT_VERSION: "2.4.0",
   
-  // ⚠️ 请在 Cloudflare 环境变量中设置 API_MASTER_KEY，或者修改此处
+  // ⚠️ Please set API_MASTER_KEY in Cloudflare environment variables, or modify here
   API_MASTER_KEY: "1", 
   
   UPSTREAM_ORIGIN: "https://ai-image-generator.co",
   
-  // 仅保留 Flux Schnell
+  // Only keep Flux Schnell
   MODELS: [
     "flux-schnell"
   ],
@@ -28,30 +28,30 @@ const CONFIG = {
   DEFAULT_MODEL: "flux-schnell",
 };
 
-// --- [第二部分: Worker 入口路由] ---
+// --- [Part 2: Worker Entry Routing] ---
 export default {
   async fetch(request, env, ctx) {
     const apiKey = env.API_MASTER_KEY || CONFIG.API_MASTER_KEY;
     const url = new URL(request.url);
     
-    // 1. CORS 预检
+    // 1. CORS Preflight
     if (request.method === 'OPTIONS') {
       return handleCorsPreflight();
     }
 
-    // 2. 开发者驾驶舱 (Web UI)
+    // 2. Developer Cockpit (Web UI)
     if (url.pathname === '/') {
       return handleUI(request, apiKey);
     } 
-    // 3. 聊天接口 (仅文生图)
+    // 3. Chat Interface (Text-to-Image only)
     else if (url.pathname === '/v1/chat/completions') {
       return handleChatCompletions(request, apiKey);
     } 
-    // 4. 绘图接口 (仅文生图)
+    // 4. Image Generation Interface (Text-to-Image only)
     else if (url.pathname === '/v1/images/generations') {
       return handleImageGenerations(request, apiKey);
     }
-    // 5. 模型列表
+    // 5. Models List
     else if (url.pathname === '/v1/models') {
       return handleModelsRequest();
     } 
@@ -61,23 +61,23 @@ export default {
   }
 };
 
-// --- [第三部分: 核心业务逻辑] ---
+// --- [Part 3: Core Business Logic] ---
 
-// 日志记录器类
+// Logger Class
 class Logger {
     constructor() { this.logs = []; }
     add(step, data) {
         const time = new Date().toISOString().split('T')[1].slice(0, -1);
-        // 如果是对象，保留对象格式以便前端格式化，否则转字符串
+        // If it's an object, keep object format for frontend formatting, otherwise convert to string
         this.logs.push({ time, step, data });
-        // 控制台打印保留
+        // Keep console logging
         console.log(`[${step}]`, data);
     }
     get() { return this.logs; }
 }
 
 /**
- * 生成随机指纹 ID (32位 Hex)
+ * Generate random fingerprint ID (32-bit Hex)
  */
 function generateFingerprint() {
     const chars = '0123456789abcdef';
@@ -89,14 +89,14 @@ function generateFingerprint() {
 }
 
 /**
- * 生成随机 IP 地址 (用于伪造)
+ * Generate random IP address (for spoofing)
  */
 function generateRandomIP() {
     return `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
 }
 
 /**
- * 构造伪造的请求头 (包含 Cookie)
+ * Construct fake request headers (including Cookie)
  */
 function getFakeHeaders(fingerprint, anonUserId) {
     const fakeIP = generateRandomIP();
@@ -108,7 +108,7 @@ function getFakeHeaders(fingerprint, anonUserId) {
             "origin": CONFIG.UPSTREAM_ORIGIN,
             "referer": `${CONFIG.UPSTREAM_ORIGIN}/`,
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
-            // 深度 IP 伪造
+            // Deep IP spoofing
             "X-Forwarded-For": fakeIP,
             "X-Real-IP": fakeIP,
             "CF-Connecting-IP": fakeIP,
@@ -116,20 +116,20 @@ function getFakeHeaders(fingerprint, anonUserId) {
             "X-Client-IP": fakeIP,
             "Cookie": `anon_user_id=${anonUserId};`
         },
-        fakeIP: fakeIP // 返回 IP 供日志记录
+        fakeIP: fakeIP // Return IP for logging
     };
 }
 
 /**
- * 执行上游生成流程 (纯文本模式)
+ * Execute upstream generation process (pure text mode)
  */
 async function performUpstreamGeneration(prompt, model, aspectRatio, logger) {
-    // 1. 生成会话身份
+    // 1. Generate session identity
     const fingerprint = generateFingerprint();
     const anonUserId = crypto.randomUUID(); 
     const { headers, fakeIP } = getFakeHeaders(fingerprint, anonUserId);
     
-    // 详细日志：身份信息
+    // Detailed log: identity information
     logger.add("Identity Created", { 
         fingerprint, 
         anonUserId, 
@@ -137,10 +137,10 @@ async function performUpstreamGeneration(prompt, model, aspectRatio, logger) {
         userAgent: headers["user-agent"]
     });
 
-    // 2. 扣费 (Deduct)
+    // 2. Deduct credits
     const deductPayload = {
         "trans_type": "image_generation",
-        "credits": 1, // Flux Schnell 消耗 1 学分
+        "credits": 1, // Flux Schnell consumes 1 credit
         "model": model,
         "numOutputs": 1,
         "fingerprint_id": fingerprint
@@ -167,20 +167,20 @@ async function performUpstreamGeneration(prompt, model, aspectRatio, logger) {
         logger.add("Deduct Error", e.message);
     }
 
-    // 3. 生成 (Generate)
-    const provider = "replicate"; // Flux 固定使用 replicate
+    // 3. Generate
+    const provider = "replicate"; // Flux fixed to use replicate
 
     const formData = new FormData();
     formData.append("prompt", prompt);
     formData.append("model", model);
     formData.append("num_outputs", "1");
-    formData.append("inputMode", "text"); // 强制文本模式
+    formData.append("inputMode", "text"); // Force text mode
     formData.append("style", "auto");
     formData.append("aspectRatio", aspectRatio || "1:1");
     formData.append("fingerprint_id", fingerprint);
     formData.append("provider", provider);
 
-    // 移除 Content-Type 让 fetch 自动生成 boundary
+    // Remove Content-Type to let fetch auto-generate boundary
     const genHeaders = { ...headers };
     delete genHeaders["content-type"]; 
 
@@ -206,7 +206,7 @@ async function performUpstreamGeneration(prompt, model, aspectRatio, logger) {
         throw new Error(`Upstream returned non-JSON: ${respText.substring(0, 100)}`);
     }
 
-    // 详细日志：上游完整响应
+    // Detailed log: complete upstream response
     logger.add("Step 2: Upstream Response (Full)", data);
 
     if (!response.ok) {
@@ -221,7 +221,7 @@ async function performUpstreamGeneration(prompt, model, aspectRatio, logger) {
 }
 
 /**
- * 处理 Chat 接口 (仅支持文本 Prompt)
+ * Handle Chat interface (only supports text Prompt)
  */
 async function handleChatCompletions(request, apiKey) {
     const logger = new Logger();
@@ -239,7 +239,7 @@ async function handleChatCompletions(request, apiKey) {
 
         let prompt = "";
 
-        // 简化解析：只提取文本
+        // Simplified parsing: only extract text
         if (typeof lastMsg.content === 'string') {
             prompt = lastMsg.content;
         } else if (Array.isArray(lastMsg.content)) {
@@ -247,17 +247,17 @@ async function handleChatCompletions(request, apiKey) {
                 if (part.type === 'text') {
                     prompt += part.text + " ";
                 }
-                // 忽略 image_url
+                // Ignore image_url
             }
         }
 
-        // 强制使用 Flux
+        // Force use Flux
         const model = CONFIG.DEFAULT_MODEL;
 
-        // 执行生成
+        // Execute generation
         const imageUrl = await performUpstreamGeneration(prompt, model, "1:1", logger);
 
-        // 构造响应
+        // Construct response
         const respContent = `![Generated Image](${imageUrl})`;
         const respId = `chatcmpl-${crypto.randomUUID()}`;
 
@@ -267,7 +267,7 @@ async function handleChatCompletions(request, apiKey) {
             const encoder = new TextEncoder();
 
             (async () => {
-                // [Web UI 专用] 发送详细调试日志
+                // [Web UI specific] Send detailed debug logs
                 if (isWebUI) {
                     await writer.write(encoder.encode(`data: ${JSON.stringify({ debug: logger.get() })}\n\n`));
                 }
@@ -311,14 +311,14 @@ async function handleChatCompletions(request, apiKey) {
 }
 
 /**
- * 处理 Image 接口 (仅文生图)
+ * Handle Image interface (Text-to-Image only)
  */
 async function handleImageGenerations(request, apiKey) {
     const logger = new Logger();
     if (!verifyAuth(request, apiKey)) return createErrorResponse('Unauthorized', 401, 'unauthorized');
 
     try {
-        const body = await request.json(); // 仅支持 JSON
+        const body = await request.json(); // Only supports JSON
         const prompt = body.prompt;
         const model = CONFIG.DEFAULT_MODEL;
         let size = "1:1";
@@ -339,7 +339,7 @@ async function handleImageGenerations(request, apiKey) {
     }
 }
 
-// --- [辅助函数] ---
+// --- [Helper Functions] ---
 
 function verifyAuth(request, validKey) {
     if (validKey === "1") return true; 
@@ -373,20 +373,20 @@ function handleModelsRequest() {
     }), { headers: corsHeaders({ 'Content-Type': 'application/json' }) });
 }
 
-// --- [第四部分: 开发者驾驶舱 UI (Flux 纯净版)] ---
+// --- [Part 4: Developer Cockpit UI (Flux Pure Edition)] ---
 function handleUI(request, apiKey) {
   const origin = new URL(request.url).origin;
   const html = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${CONFIG.PROJECT_NAME} - 驾驶舱</title>
+    <title>${CONFIG.PROJECT_NAME} - Cockpit</title>
     <style>
       :root { --bg: #09090b; --panel: #18181b; --border: #27272a; --text: #e4e4e7; --primary: #f59e0b; --accent: #3b82f6; --code-bg: #000000; }
       body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; height: 100vh; display: flex; overflow: hidden; }
       
-      /* 侧边栏 */
+      /* Sidebar */
       .sidebar { width: 360px; background: var(--panel); border-right: 1px solid var(--border); padding: 24px; display: flex; flex-direction: column; overflow-y: auto; box-shadow: 2px 0 10px rgba(0,0,0,0.3); }
       .main { flex: 1; display: flex; flex-direction: column; padding: 24px; background-color: #000; position: relative; }
       
@@ -405,7 +405,7 @@ function handleUI(request, apiKey) {
       button:hover { filter: brightness(1.1); }
       button:disabled { background: #3f3f46; color: #71717a; cursor: not-allowed; }
       
-      /* 结果区域 */
+      /* Result area */
       .result-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%); border-radius: 12px; border: 1px solid var(--border); }
       .result-img { max-width: 95%; max-height: 95%; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.7); cursor: pointer; transition: transform 0.3s; }
       .result-img:hover { transform: scale(1.01); }
@@ -415,7 +415,7 @@ function handleUI(request, apiKey) {
       .spinner { width: 24px; height: 24px; border: 3px solid #333; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; display: none; }
       @keyframes spin { to { transform: rotate(360deg); } }
 
-      /* 日志面板 */
+      /* Log panel */
       .log-panel { height: 200px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 11px; color: #a1a1aa; margin-top: 10px; }
       .log-entry { margin-bottom: 8px; border-bottom: 1px solid #1a1a1a; padding-bottom: 8px; }
       .log-time { color: #52525b; margin-right: 8px; }
@@ -428,52 +428,52 @@ function handleUI(request, apiKey) {
         <h2>🎨 Flux Pure <span class="badge">v2.4.0</span></h2>
         
         <div class="box">
-            <span class="label">API 密钥 (点击复制)</span>
+            <span class="label">API Key (Click to copy)</span>
             <div class="code-block" onclick="copy('${apiKey}')">${apiKey}</div>
         </div>
 
         <div class="box">
-            <span class="label">API 地址</span>
+            <span class="label">API Endpoint</span>
             <div class="code-block" onclick="copy('${origin}/v1/chat/completions')">${origin}/v1/chat/completions</div>
         </div>
 
         <div class="box">
-            <span class="label">模型 (Model)</span>
+            <span class="label">Model</span>
             <select id="model" disabled style="opacity:0.7; cursor:not-allowed">
                 <option value="flux-schnell" selected>flux-schnell (Locked)</option>
             </select>
             
-            <span class="label">比例 (Aspect Ratio)</span>
+            <span class="label">Aspect Ratio</span>
             <select id="ratio">
-                <option value="1:1">1:1 (方形)</option>
-                <option value="16:9">16:9 (横屏)</option>
-                <option value="9:16">9:16 (竖屏)</option>
+                <option value="1:1">1:1 (Square)</option>
+                <option value="16:9">16:9 (Landscape)</option>
+                <option value="9:16">9:16 (Portrait)</option>
                 <option value="4:3">4:3</option>
                 <option value="3:4">3:4</option>
             </select>
 
-            <span class="label">提示词 (Prompt)</span>
-            <textarea id="prompt" rows="6" placeholder="描述你想生成的图片... 例如: A futuristic city with neon lights, cyberpunk style"></textarea>
+            <span class="label">Prompt</span>
+            <textarea id="prompt" rows="6" placeholder="Describe the image you want to generate... Example: A futuristic city with neon lights, cyberpunk style"></textarea>
             
-            <button id="btn-gen" onclick="generate()">🚀 开始生成</button>
+            <button id="btn-gen" onclick="generate()">🚀 Generate</button>
         </div>
     </div>
 
     <main class="main">
         <div class="result-area" id="result-container">
             <div style="color:#3f3f46; text-align:center;">
-                <p>图片预览区域</p>
+                <p>Image Preview Area</p>
                 <div class="spinner" id="spinner"></div>
             </div>
         </div>
         
         <div class="status-bar">
-            <span id="status-text">系统就绪</span>
+            <span id="status-text">System Ready</span>
             <span id="time-text"></span>
         </div>
 
         <div class="log-panel" id="logs">
-            <div style="color:#52525b">// 等待请求... 日志将显示在这里</div>
+            <div style="color:#52525b">// Waiting for request... Logs will appear here</div>
         </div>
     </main>
 
@@ -481,7 +481,7 @@ function handleUI(request, apiKey) {
         const API_KEY = "${apiKey}";
         const ENDPOINT = "${origin}/v1/chat/completions";
 
-        function copy(text) { navigator.clipboard.writeText(text); alert('已复制到剪贴板'); }
+        function copy(text) { navigator.clipboard.writeText(text); alert('Copied to clipboard'); }
 
         function appendLog(step, data) {
             const logs = document.getElementById('logs');
@@ -499,8 +499,8 @@ function handleUI(request, apiKey) {
 
             div.innerHTML = \`<span class="log-time">[\${time}]</span><span class="log-key">\${step}</span>\${content}\`;
             
-            // 如果是第一次添加，清空初始提示
-            if (logs.innerText.includes('// 等待请求')) logs.innerHTML = '';
+            // If it's the first addition, clear the initial prompt
+            if (logs.innerText.includes('// Waiting for request')) logs.innerHTML = '';
             
             logs.appendChild(div);
             logs.scrollTop = logs.scrollHeight;
@@ -509,7 +509,7 @@ function handleUI(request, apiKey) {
         async function generate() {
             const promptEl = document.getElementById('prompt');
             const prompt = promptEl ? promptEl.value.trim() : "";
-            if (!prompt) return alert('请输入提示词');
+            if (!prompt) return alert('Please enter a prompt');
 
             const btn = document.getElementById('btn-gen');
             const spinner = document.getElementById('spinner');
@@ -518,9 +518,9 @@ function handleUI(request, apiKey) {
             const logs = document.getElementById('logs');
             const timeText = document.getElementById('time-text');
 
-            if(btn) { btn.disabled = true; btn.innerText = "生成中..."; }
+            if(btn) { btn.disabled = true; btn.innerText = "Generating..."; }
             if(spinner) spinner.style.display = 'inline-block';
-            if(status) status.innerText = "正在连接上游 API...";
+            if(status) status.innerText = "Connecting to upstream API...";
             if(container) container.innerHTML = '<div class="spinner" style="display:block"></div>';
             if(logs) logs.innerHTML = ''; 
 
@@ -563,12 +563,12 @@ function handleUI(request, apiKey) {
                             if (jsonStr === '[DONE]') break;
                             try {
                                 const json = JSON.parse(jsonStr);
-                                // 处理调试日志
+                                // Handle debug logs
                                 if (json.debug) {
                                     json.debug.forEach(log => appendLog(log.step, log.data));
                                     continue;
                                 }
-                                // 处理内容流
+                                // Handle content stream
                                 if (json.choices && json.choices[0].delta.content) {
                                     fullContent += json.choices[0].delta.content;
                                 }
@@ -581,19 +581,19 @@ function handleUI(request, apiKey) {
                 if (match && match[1]) {
                     const imgUrl = match[1];
                     if(container) container.innerHTML = \`<img src="\${imgUrl}" class="result-img" onclick="window.open(this.src)">\`;
-                    if(status) status.innerText = "生成成功";
-                    if(timeText) timeText.innerText = \`耗时: \${((Date.now()-startTime)/1000).toFixed(2)}s\`;
+                    if(status) status.innerText = "Generation successful";
+                    if(timeText) timeText.innerText = \`Time taken: \${((Date.now()-startTime)/1000).toFixed(2)}s\`;
                     appendLog("Success", "Image URL extracted: " + imgUrl);
                 } else {
-                    throw new Error("无法从响应中提取图片 URL");
+                    throw new Error("Unable to extract image URL from response");
                 }
 
             } catch (e) {
                 if(container) container.innerHTML = \`<div style="color:#ef4444; padding:20px; text-align:center">❌ \${e.message}</div>\`;
-                if(status) status.innerText = "发生错误";
+                if(status) status.innerText = "Error occurred";
                 appendLog("Error", e.message);
             } finally {
-                if(btn) { btn.disabled = false; btn.innerText = "🚀 开始生成"; }
+                if(btn) { btn.disabled = false; btn.innerText = "🚀 Generate"; }
             }
         }
     </script>
